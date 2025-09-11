@@ -1,11 +1,13 @@
 import { connect } from 'cloudflare:sockets';
 
+// 配置参数
 let subPath = 'link', password = '123456', 
     serverPool = ['13.230.34.30'],
     yourUUID = '5dc15e15-f285-4a9d-959b-0e4fbdd77b63',
     cfip = ['ip.sb', 'time.is', 'skk.moe', 'www.visa.com.tw', 'www.visa.com.hk', 'www.visa.com.sg', 'cf.090227.xyz','cf.877774.xyz', 'cdns.doon.eu.org', 'cf.zhetengsha.eu.org'],
     dnsResolver = 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=';
 
+// 服务器地址解析
 function parseServerAddress(serverStr) {
     let hostname = serverStr.trim(), port = 443;
     if (hostname.includes('.tp')) {
@@ -22,6 +24,7 @@ function parseServerAddress(serverStr) {
     return { hostname, port };
 }
 
+// DNS解析
 async function resolveHostname(hostname) {
     if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) || /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/.test(hostname))
         return hostname;
@@ -39,6 +42,7 @@ async function resolveHostname(hostname) {
     }
 }
 
+// 故障转移连接
 async function connectWithFailover() {
     const servers = [...serverPool.filter(s => s?.trim()), 'Kr.tp50000.netlib.re'];
     let lastError;
@@ -53,6 +57,7 @@ async function connectWithFailover() {
     throw new Error(`All servers failed: ${lastError?.message || 'Unknown'}`);
 }
 
+// 生成随机User-Agent
 function obfuscateUserAgent() {
     const uas = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -64,7 +69,8 @@ function obfuscateUserAgent() {
     return uas[Math.floor(Math.random() * uas.length)];
 }
 
-async function VLOverWSHandler(request) {
+// WebSocket处理
+async function WSHandler(request) {
     const { 0: client, 1: ws } = Object.values(new WebSocketPair());
     ws.accept();
     
@@ -84,7 +90,7 @@ async function VLOverWSHandler(request) {
                 }
             } catch (e) { ctrl.error(e); }
 
-            const { hasError, message, portRemote=443, addressRemote='', rawDataIndex, VLVersion=new Uint8Array([0,0]), isUDP } = await processVLHeader(chunk, yourUUID);
+            const { hasError, message, portRemote=443, addressRemote='', rawDataIndex, version=new Uint8Array([0,0]), isUDP } = await processHeader(chunk, yourUUID);
             if (hasError) throw new Error(message);
             
             if (isUDP) {
@@ -92,7 +98,7 @@ async function VLOverWSHandler(request) {
                 isDns = true;
             }
             
-            const header = new Uint8Array([VLVersion[0], 0]);
+            const header = new Uint8Array([version[0], 0]);
             const data = chunk.slice(rawDataIndex);
 
             if (isDns) {
@@ -108,6 +114,7 @@ async function VLOverWSHandler(request) {
     return new Response(null, { status: 101, webSocket: client });
 }
 
+// TCP出站处理
 async function handleTCPOutBound(remote, addr, port, data, ws, header) {
     async function connectAndWrite(a, p) {
         const s = connect({ hostname: a, port: p });
@@ -142,6 +149,7 @@ async function handleTCPOutBound(remote, addr, port, data, ws, header) {
     }
 }
 
+// WebSocket流处理
 function makeReadableWebSocketStream(ws, earlyData) {
     let closed = false;
     return new ReadableStream({
@@ -161,7 +169,8 @@ function makeReadableWebSocketStream(ws, earlyData) {
     });
 }
 
-async function processVLHeader(buf, uuid) {
+// 协议头部处理
+async function processHeader(buf, uuid) {
     if (buf.byteLength < 24) return { hasError: true, message: 'Invalid data' };
     
     const version = new Uint8Array(buf.slice(0, 1));
@@ -206,11 +215,12 @@ async function processVLHeader(buf, uuid) {
         addressRemote: addrVal,
         portRemote: port,
         rawDataIndex: addrValIdx + addrLen,
-        VLVersion: version,
+        version: version,
         isUDP: cmd === 2
     };
 }
 
+// 远程Socket转WebSocket
 async function remoteSocketToWS(sock, ws, header, retry) {
     let hasData = false, respHeader = header;
     await sock.readable.pipeTo(new WritableStream({
@@ -225,6 +235,7 @@ async function remoteSocketToWS(sock, ws, header, retry) {
     if (!hasData && retry) retry();
 }
 
+// Base64转ArrayBuffer
 function base64ToArrayBuffer(str) {
     if (!str) return { error: null };
     try {
@@ -236,6 +247,7 @@ function base64ToArrayBuffer(str) {
     }
 }
 
+// UUID验证与处理
 const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 function unsafeStringify(arr, o=0) {
     return `${byteToHex[arr[o]]}${byteToHex[arr[o+1]]}${byteToHex[arr[o+2]]}${byteToHex[arr[o+3]]}-${byteToHex[arr[o+4]]}${byteToHex[arr[o+5]]}-${byteToHex[arr[o+6]]}${byteToHex[arr[o+7]]}-${byteToHex[arr[o+8]]}${byteToHex[arr[o+9]]}-${byteToHex[arr[o+10]]}${byteToHex[arr[o+11]]}${byteToHex[arr[o+12]]}${byteToHex[arr[o+13]]}${byteToHex[arr[o+14]]}${byteToHex[arr[o+15]]}`.toLowerCase();
@@ -249,6 +261,7 @@ function stringify(arr, o=0) {
     return id;
 }
 
+// UDP出站处理
 async function handleUDPOutBound(ws, header) {
     let sentHeader = false;
     const ts = new TransformStream({
@@ -281,11 +294,13 @@ async function handleUDPOutBound(ws, header) {
     return { write: chunk => writer.write(chunk) };
 }
 
-function getVLConfig(uuid, url) {
+// 配置生成
+function getConfig(uuid, url) {
     const path = encodeURIComponent('/?ed=2560');
-    return cfip.map(addr => `vless://${uuid}@${addr}:443?encryption=none&security=tls&sni=${url}&fp=chrome&type=ws&host=${url}&path=${path}#Workers-service`).join('\n');
+    return cfip.map(addr => `wss://${uuid}@${addr}:443?encryption=none&security=tls&sni=${url}&fp=chrome&type=ws&host=${url}&path=${path}#Workers-service`).join('\n');
 }
 
+// Web页面处理
 function getHomePage(request) {
     const host = request.headers.get('Host'), base = `https://${host}`;
     const pwd = new URL(request.url).searchParams.get('password');
@@ -305,11 +320,12 @@ function getMainPage(host, base) {
 }
 
 function getSubscription(request) {
-    return new Response(btoa(getVLConfig(yourUUID, request.headers.get('Host'))), {
+    return new Response(btoa(getConfig(yourUUID, request.headers.get('Host'))), {
         headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-cache' }
     });
 }
 
+// 主入口
 export default {
     async fetch(request, env) {
         try {
@@ -324,9 +340,10 @@ export default {
 
             const url = new URL(request.url);
             if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket')
-                return await VLOverWSHandler(request);
+                return await WSHandler(request);
 
-                       switch (url.pathname) {
+            // 处理HTTP请求
+            switch (url.pathname) {
                 case '/': return getHomePage(request);
                 case `/${subPath}`: return getSubscription(request);
                 case '/info': return new Response(JSON.stringify(request.cf, null, 4), {
@@ -400,6 +417,7 @@ export default {
     }
 };
 
+// WebSocket工具函数
 const WS_READY_STATE_OPEN = 1, WS_READY_STATE_CLOSING = 2;
 function safeCloseWebSocket(socket) {
     try {
