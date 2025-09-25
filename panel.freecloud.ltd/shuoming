@@ -1,0 +1,14 @@
+启动项 -  变量1
+node hysteria.js
+
+变量2
+node .
+
+
+/start.sh
+
+上传两个文件 hysteria-linux-amd64
+hysteria.js
+
+
+修改hysteria.js 内 端口
